@@ -1,0 +1,303 @@
+TEMA 4: INTERVALOS DE CONFIANZA Y TESTS DE HIPOTESIS
+
+media muestral -> mean(datos)
+varianza muestral -> var(datos)
+desviacion estandar de una muestra -> sd(datos)
+numero de la muestra -> length(datos)
+sigma = sqrt(sigma^2)
+nivel de significacion (alpha) = 1 - n.confianza
+
+INTERVALOS DE CONFIANZA:
+
+media muestral con varianza conocida -> (+,-) qnorm(1 - (alpha/2)) * sigma/sqrt(n)
+
+media muestral con varianza desconocida -> (+,-) qt(1 - (alpha/2), df = n - 1) * s_gorrito/sqrt(n)
+
+varianza muestral -> ((n-1) * (s_gorrito^2))/(qchisq(1- (alpha/2), df = n - 1)) <= sigma^2 <=  ((n-1) * (s_gorrito^2))/(qchisq(alpha/2, df = n - 1))
+
+ratio de varianzas muestrales -> (s_gorrito1^2/s_gorrito2^2)/(qf(1 - (alpha/2), n1 - 1, n2 - 1)) <= sigma1^2/sigma2^2 <= (s_gorrito1^2/s_gorrito2^2)/(qf(alpha/2, n1 - 1, n2 - 1)) 
+
+TEST PARA UNA/DOS POBLACIONES NORMALES
+
+library(tidyverse)
+howell_adults = filter(howell, age >= 18)
+howell_adults = mutate(howell_adults, male = factor(male))
+df <- df[order(df$id), ]
+
+visualizar datos: 
+library(ggplot2)
+ggplot(howell_adults, aes(x = height, y = weight, col = male)) + geom_point() + geom_smooth()
+
+histograma:
+ggplot(howell_adults, aes(x = height, fill = male)) + geom_density(alpha = 0.5)
+
+Datos apareados: 
+D = Postop - Preop
+hist(D)
+
+p-valor:
+
+# 1 poblacion:
+
+
+# 2 poblaciones
+t_test = t.test(
+	hombres$height, mujeres$height,
+	alternative = "colas",
+	mu = 0,
+	conf.level = 0.95)
+
+# datos pareados
+t_test = t.test(
+	hombres$height, mujeres$height,
+	alternative = "colas",
+	mu = 0,
+	paired = TRUE)
+
+# varianzas desconocidas pero iguales
+t_test = t.test(
+	hombres$height, mujeres$height,
+	alternative = "colas",
+	mu = 0,
+	var.equal = TRUE)
+
+# test de medias siempre hacer el TAMAÑO DEL EFECTO:
+library("easystats")
+cohens_d = effectsize(t_test)
+print(cohens_d)
+
+# TAMAÑO DE LA MUESTRA:
+
+power.t.test( 
+    delta = 18,
+    sd = sd(D), 
+    sig.level = 0.01,
+    power = 0.9,
+    type = "poblacion",
+    alternative = "cola" 
+)
+
+# simular resultados:
+datos = rnorm(10)
+datos = datos - mean(datos)
+datos = datos / sd(datos)
+datos = sqrt(varianza_muestral) * datos + media_muestral
+datos = desviacion_estandar_muestral * datos + media_muestral 
+
+# VAR.TEST ESTADISTICA F de snedecor (sigma_a^2/sigma_b^2 = 1)
+var.test(
+	datos_a, datos_b,
+	alternative = "colas",
+	ratio = 1,
+	conf.level = 0.98
+	)
+
+# test para poblaciones no normales (TCL)
+
+lambda muestral = media muestral 
+(poisson -> normal)
+distribuciones discretas (no se puede utilizar hist)
+barplot(table(hgoals))
+ggplot(spain_league2122, aes(x = hgoals)) + geom_bar()
+lambda_est = mean(hgoals)
+N = length(hgoals)
+error = qnorm(0.02/2) * sqrt(lambda_est/N)
+IC = lambda_est (+,-) error
+IC = c(lambda_est + error, lambda_est - error)
+
+# Datos tabulares:
+
+1. Estimación de la proporcion muestral (racismo) -> solo una binomial binom.test
+ggplot(juries, aes(x = race, fill = race)) + geom_bar()
+X ~ B(n,p) -> n: numero de lanzamientos, p: prob de exito
+
+numero_de_exitos = sum(juries$race == "afroamerican")
+tabla_juries = table(juries$race)
+numero_de_experimento = length(juries$race)
+
+# codificar ha (p<0.5)
+binom.test(
+	numero_de_exitos,
+	numero_de_experimentos,
+	p = 0.5,
+	alternative = "less",
+	conf.level = 0.95)
+
+2. Comparación de proporciones (paginas web -> clicks) -> 2 o mas binomiales prop.test
+
+# factorizar columnas a estudiar
+ggplot(ab_testing, aes(x = page_design, fill = has_clicked)) + geom_bar(position = fill)
+
+# 2 binomiales
+X ~ B(nx, px)
+Y ~ B(ny, py)
+
+# hacer tabla
+page_tab = table(
+	ab_testing$page_design,
+	ab_testing$has_clicked)
+
+numero_de_exitos = page_tab[ ,2]
+numero_de_experimentos = rowSums(page_tab)
+
+# Codificar Ha px > py
+prop.test(
+	numero_de_exitos,
+	numero_de_experimentos,
+	alternative = "greater",
+	conf.level = 0.95)
+
+TEMA 5: REGRESION
+
+# instalar librerias
+install.packages(c("easystats", "GGally", "qqplotr"))
+
+# cargar librerias
+
+library("easystats")
+library("tidyverse")
+library("readr")
+theme_set(theme_bw())
+
+# R. Lineal: 
+y = a + b * x + e -> donde e ~ N(0, sigma^2)
+
+y ->
+x -> (factor)
+
+ggplot(df, aes(x = age, y = height)) + 
+  geom_point() + 
+  geom_smooth(method = "lm")
+
+model = lm(Y ~ X, df)
+summary(model)
+
+# R. Multiple
+
+ggplot(iris_preds, aes(x=Species, fill = Species)) + 
+  geom_boxplot(aes(y=Sepal.Length)) + 
+  geom_point(aes(y = fit), shape=4, size=3)
+
+# Transformaciones logaritmicas:
+
+ggplot(df, aes(x = height, y = log(earn), col = sex)) + geom_jitter(width = 0.5) + geom_smooth(method = "lm")
+
+ha_model = lm(log(earn) ~ height + sex, df)
+
+summary(ha_model)
+
+# para height -> altura
+log_interpretation(coefficient = 0.018561, log_transformation = "response")
+
+# para sexmale
+log_interpretation(coefficient = 0.266177, log_transformation = "response")
+
+# Contrastes ortogonales:
+
+ggplot(iris_preds, aes(x=Species, fill = Species)) + 
+  geom_boxplot(aes(y=Sepal.Length))
+
+VI - VII -> Ho: mu_versi - mu_virgi = 0
+V - Setosa -> Ho: 0.5 * mu_versi + 0.5 * mu_virg - mu_seto = 0
+
+# Poner variable como referencia
+
+suppressPackageStartupMessages(
+  source("utils.R")   # cargamos get_contrasts_coding
+)
+
+iris$Species = relevel(iris$Species, "setosa")
+levels(iris$Species)
+contrasts(iris$Species)
+
+my_contrasts = rbind(
+  "V - setosa" = c(-1, 0.5, 0.5),
+  "I - II" = c(0, 1, -1)
+)
+
+#my_coding = get_contrasts_coding(my_contrasts)
+contrasts(iris$Species) = my_coding
+contrasts(iris$Species)
+v_model = lm(Sepal.Length ~ Species, iris)
+
+summary(v_model)
+confint(v_model)
+
+# ANOVA Y ANCOVA
+
+# Regresion lineal y multiple
+
+install.packages(
+ c("afex", "emmeans")
+)
+
+library("tidyverse")
+library("easystats") # carga performance y effectsize
+theme_set(theme_bw())  # cambia el tema de ggplot
+
+library("car")  
+source("utils.R")
+
+ggplot(anxiety, aes(x = pretest, y = posttest, col = group)) +
+  geom_point() + 
+  geom_smooth(method = "lm")
+
+contrasts(anxiety$group) = contr.treatment(3)
+contrasts(anxiety$group)
+
+anxiety_lm_oav = Anova(anxiety_lm, type = 3)
+anxiety_lm_oav
+
+plot(v_model, which = c(1, 2), ask=FALSE)
+plot(check_normality(v_model), type = "qq", detrend = TRUE)
+check_homogeneity(v_model)
+
+library("emmeans")
+anxiety_lm_emms = emmeans(anxiety_lm, "group")
+anxiety_lm_emms
+
+ggplot(drugs_df_1, aes(x=sex, y=response_time, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+
+drugs_model_v1 = lm(response_time ~ sex + drug, data = drugs_df_1)
+
+
+drugs_model_2 = lm(response_time ~ sex + drug, data = drugs_df_2)
+drugs_df_2$predictions = predict(drugs_model_2)
+
+drugs_model_2 = lm(response_time ~ sex * drug, drugs_df_2)
+
+drugs_df_2$predictions = predict(drugs_model_2)
+
+ggplot(drugs_df_2, aes(x=sex, y=predictions, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+drugs_contrasts = rbind(
+  "_Drugs Vs Placebo" = c(0.5, 0.5, -1), 
+  "_A Vs B" = c(1, -1, 0)
+)
+
+contrasts(drugs_df_2$drug) = get_contrasts_coding(drugs_contrasts)
+
+
+drugs_contrasts_list = list(
+  "_Drugs Vs Placebo" = c(0.5, 0.5, -1), 
+  "_A Vs B" = c(1, -1, 0)
+)
+
+print(Anova(drugs_model_2, type = 3))
+
+drug_means = emmeans(drugs_model_2, ~ drug) 
+
+conditional_means = emmeans(drugs_model_2, ~ drug | sex)
+
+contrast(conditional_means, interaction = list("drugs" = drugs_contrasts_list, "sex" = "consec"),
+         by = NULL)
+
+drugs_emms = emmeans(drugs_model_2, ~ drug | sex) 
+contrast(drugs_emms, interaction = 
+           list("drug" = "pairwise", "sex" = "consec"),
+         by = NULL, adjust = "fdr")
