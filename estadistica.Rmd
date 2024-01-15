@@ -301,3 +301,513 @@ drugs_emms = emmeans(drugs_model_2, ~ drug | sex)
 contrast(drugs_emms, interaction = 
            list("drug" = "pairwise", "sex" = "consec"),
          by = NULL, adjust = "fdr")
+
+
+**¿Cuándo emplear ANOVA?**:
+
+* Si el número de contrastes basta para responder a nuestras hipótesis, no es necesario
+emplear ANOVA (tal y como hiciemos en el ejemplo del método V).
+* Si el número de contrastes no basta, o no tenemos hipótesis específicas, al final 
+tendremos que comparar todos los niveles del factor entre sí. Esto es precisamente 
+lo que hacen los test post-hoc. Pero **antes de un test post-hoc siempre hay que usar ANOVA.**
+
+### Ejemplo: el "método V", otra vez.
+Repitamos el análisis realizado para el método V, asumiendo que queremos comparar todas 
+las especies entre sí. Esto implica que tenemos que hacer tres comparaciones, por lo 
+que tendremos que usar test post-hoc.
+
+```{r, message=FALSE}
+# Anova. R tienen otras funciones anova, pero queremos usar la de car para 
+# usar ANOVA tipo III
+library("car")  
+source("utils.R")
+
+data("iris")
+
+# 1) Visualizar datos
+head(iris)
+ggplot(iris, aes(x=Species, y = Sepal.Length, fill=Species)) + geom_boxplot() + 
+  coord_flip()
+
+# 2) Especificar contrastes. Para usar ANOVA tipo III necesitamos contrastes 
+# ortogonales. ESTO NOS OBLIGA A CAMBIAR LOS CONTRASTES QUE USA R POR DEFECTO.
+# Podemos:
+# 1) Construir nuestros propios contrastes (recomendado siempre que se pueda; ver notebook anterior).
+# 2) Usar contrastes ortogonales incluidos en R como contr.helmert o contr.sum.
+# 2.1) contr.sum: Compara la media de cada categoría contra la media global.
+# 2.2) contr.helmert: Compara la media de cada categoria contra las medias de las 
+# categorías que le siguen. Es decir, en nuestro ejemplo, 1 Vs (2 y 3); 2 Vs 3.
+
+# Por ejemplo...
+contrasts(iris$Species) = contr.sum(3)
+contrasts(iris$Species)
+
+v_model = lm(Sepal.Length ~ Species, iris)
+
+# 3) Correr ANOVA: test omnibus
+v_model_aov = Anova(v_model, type = 3)
+
+# no utilizar en este caso
+summary(v_model) 
+v_model_aov
+
+```
+
+Antes de seguir adelante deberíamos comprobar que se cumplan las asunciones de
+ANOVA. Dejémoslo para otro ejemplo y sigamos adelante.
+
+En el código anterior, ANOVA nos indica que alguna(s) de las especies tiene(n)
+un sépalo distinto al de las otras especies... ¡Sin embargo no nos dice cuáles 
+son estas especies!
+
+Para intentar interpretar los resultados podemos recurrir a los contrastes ...
+
+```{r}
+# 4.a) 
+summary(v_model)
+confint(v_model)
+```
+
+... o usar tests post-hoc (**de hecho, recordemos que no tienen mucho sentido 
+usar ANOVA si no queremos hacer test post-hoc**). La idea básica de los tests
+post-hoc es fácil de entender: dado que sé que existe alguna diferencia entre 
+las especies, voy a comparar todas las especies entre sí. El problema es que esto 
+dispara el error tipo I muy rápidamente, por lo que tenemos que ser más 
+conservadores a la hora de aceptar una diferencia como significativa. Esto lo 
+logramos con distintos métodos de **ajuste de p-valores**. Fíjate que el test
+omnibus sirve como una primera barrera protectora antes de  lanzarnos a hacer
+**comparaciones múltiples**.
+
+Entre los métodos de ajuste, podemos distinguir entre 
+  1. Métodos centrados en controlar el **family-wise error rate (FWER)**, cuyo credo 
+  es "Si cometo un solo error tipo I todas mis conclusiones se desmoronarán".
+  2. Métodos centrados en controlar el **false discovery rate (FDR)**, que se 
+  corresponde con el credo (considerablemente más optimista) 
+  "vamos a intentar estimar cuántos errores tipo I cometo y a no pasarme de
+  cierto número (pero no pasa nada si hay algún error)".
+  
+Podemos emplear `R` base para realizar los tests post-hoc (NO RECOMENDADO, solo 
+por referencia)....
+
+```{r}
+# NO LOS VAMOS A USAR
+# Bonferroni es bastante conservador, pero es un ajuste muy conocido
+pairwise.t.test(iris$Sepal.Length, iris$Species, p.adjust.method = "bonferroni")
+# Los métodos fdr son "BH" (aka "fdr") and "BY".
+pairwise.t.test(iris$Sepal.Length, iris$Species, p.adjust.method = "fdr")
+```
+
+... o bien el paquete `emmeans` (que tiene ciertas ventajas, como veremos):
+
+```{r}
+# UTILIZAR ESTOS
+
+library("emmeans")
+v_model_emms = emmeans(v_model, "Species")
+v_model_emms
+# infer = c(TRUE, TRUE) refers to (test statistics, not confidence intervals).
+pairs(v_model_emms, adjust = "bonferroni", infer = c(TRUE, TRUE))
+pairs(v_model_emms, adjust = "fdr", infer = c(TRUE, TRUE))
+```
+
+### Ejemplo: Contrastes con emmeans
+Una desventaja de `contrasts` es tener que usar la función `get_constrasts_coding`.
+Además, cuando los análisis de ANOVA se compliquen las cosas se pondrán realmente feas. 
+Afortunadamente, podemos hacer los mismos contrastes con `emmeans` (y, de hecho, 
+a partir de ahora  calcularemos dichos contrastes con `emmeans`):
+
+```{r}
+
+v_model_means = emmeans(v_model, "Species") 
+contrast_list = list('V-Setosa' = c(-1, 0.5, 0.5), 'I - II' = c(0, 1, -1))
+contrast(v_model_means, method = contrast_list, infer = c(TRUE, TRUE)) 
+```
+
+### Ejemplo: asunciones de ANOVA
+
+En general, ANOVA asume:
+
+* Las observaciones son independientes dentro de los grupos y entre los grupos.
+* Los datos dentro de cada grupo son normales.
+* La variabilidad dentro de cada grupo es aproximadamente igual a la  
+variabilidad en los otros grupos. 
+
+```{r}
+# Variabilidad
+plot(v_model, which = c(1, 2), ask=FALSE)
+# grafica 1: la variabilidad cada vez que nos movemos a la derecha es mayor
+
+plot(check_normality(v_model), type = "qq", detrend = TRUE)
+# los puntos se deben concentrar la mayoria dentro de la nube gris
+
+check_homogeneity(v_model) # oooooohhhhhhh nooooooooooooo :(
+# da error asique esta mal y no podemos seguir
+```
+
+
+### Ejemplo: ANCOVA
+El dataset `anxiety` proporciona la puntuación de ansiedad, medida antes 
+y después de aplicar un tratamiento contra la ansiedad, de tres grupos de personas
+que practican ejercicios físicos en diferentes niveles 
+(grp1: basal, grp2: moderado y grp3: alto). Aunque no tenemos ninguna hipótesis
+específica, hagamos un análisis de los datos...
+
+```{r}
+# Extraer datos del enunciado
+# X: "pretest" -> puntuacion de ansiedad antes del tratamiento
+# Y: "posttest" -> puntuacion de ansiedad despues del tratamiento
+# grupos de personas (grupo 1, 2 y 3) variable adicional -> factorizar
+
+
+# 1) Cargar y visualizar datos.
+
+anxiety = read_csv("data/anxiety.csv")
+anxiety$group = factor(anxiety$group)
+
+anxiety
+
+ggplot(anxiety, aes(x = pretest, y = posttest, col = group)) +
+  geom_point() + 
+  geom_smooth(method = "lm")
+
+
+# 2) Contrates 
+# No tenemos hipótesis :(
+contrasts(anxiety$group) = contr.treatment(3)
+
+contrasts(anxiety$group)
+
+
+
+# 3) Anova + asunciones
+
+anxiety_lm = lm(posttest ~ pretest + group, anxiety)
+summary(anxiety_lm)
+
+# resultados:
+# ecuacion:
+# posttest = - 0.94088 + 1.02775 * pretest + (-0.64112) * group2 + (-2.98463) * group3
+
+# Grupo 1: (grupo 2 = 0, grupo 3 = 0)
+# posttest = - 0.94088 (ordenada en el origen) + 1.02775 (pendiente) * pretest (x)
+
+# Grupo 3: (grupo 1 = 0, grupo 2 = 0)
+# posttest = - 0.94088 + 1.02775 * pretest - 2.98463
+# => posttest = (-0.94088-2.98463) + 1.02775 * pretest  
+
+# conclusion: cambia la ordenada en el origen (restriccion muy seria en el modelo), la pendiente no se puede cambiar
+
+# ---------------
+
+# (hecho yo pero nose si esta bien)
+anxiety_lm_oav = Anova(anxiety_lm, type = 3)
+anxiety_lm_oav
+
+# Asunciones:
+# (hecho yo pero nose si esta bien)
+
+# 1. 
+plot(anxiety_lm, which = c(1,2), ask = FALSE)
+
+# 2. 
+plot(check_normality(anxiety_lm), type = "qq", detrend = TRUE)
+
+# 3.
+check_homogeneity(anxiety_lm)
+
+# 4) Posthoc tests!
+# (hecho yo pero nose si esta bien)
+library("emmeans")
+anxiety_lm_emms = emmeans(anxiety_lm, "group")
+anxiety_lm_emms
+```
+
+¡Ojo, queremos comparar diferencias entre las medias ajustadas! La función
+`pairwise.t.test()` no usará medias ajustadas, por lo que debemos emplear 
+`emmeans`:
+
+```{r}
+# ????????????????????????????????? 
+# 
+# # Versus... (¡no usar esto! Es solo por comparación)
+# pairwise.t.test(anxiety$posttest, anxiety$group, p.adjust.method = "bonferroni")
+# ggplot(anxiety, aes(x=group, y=posttest, fill=group)) + geom_boxplot()
+```
+
+# ANOVA factorial
+Los diseño de **ANOVA factoriales (factorial = más de un factor)** permiten el efecto
+individual y conjunto de uno o más factores. Podemos distinguir varios tipos de
+análisis factoriales...
+
+* ... Diseños independientes, 
+* Diseños con medidas repetidas, 
+* Diseños mixtos, ...
+
+... que, como veremos, plantean ciertas diferencias en los modelos. En este cuaderno, 
+nos centraremos en **ANOVA factorial independiente***.
+
+En cualquier caso, en los diseños factoriales lo que primero debemos comprender 
+es el concepto de **interacción**.
+
+## ANOVA factorial independiente
+### Ejemplo: Sin interacción entre los factores principales
+Estudiamos el efecto de tres drogas sobre el tiempo de reacción (una de ellas placebo)
+teniendo en cuenta además el sexo de los pacientes que toman el medicamento. Supongamos que 
+el efecto de las drogas y edad se mide  en términos de reducción del tiempo de 
+reacción a algún estímulo y que se obtienen los resultados del fichero
+"drugs_1.csv". Visualiza el efecto de las drogas y sexo en los tiempos de reacción
+y propón un modelo.
+
+```{r}
+# Extraer datos del enunciado:
+
+# Quieres saber como afecta una droga al tiempo de respuesta
+
+# X: "sexo"
+# Y: "tiempo de respuesta"
+# variable adicional = tipo de droga 
+
+
+drugs_df_1 = read.csv("data/drugs_1.csv")
+# Convertir columnas droga y sexo en factores
+drugs_df_1$drug = factor(drugs_df_1$drug)
+drugs_df_1$sex = factor(drugs_df_1$sex)
+
+view(drugs_df_1)
+
+# Visualizacion rapida
+
+ggplot(drugs_df_1, aes(x=sex, y=response_time, col=drug)) + geom_point()
+
+# Visualizacion para ver si las rectas son paralelas
+# (sin interaccion porque las rectas son paralelas)
+
+ggplot(drugs_df_1, aes(x=sex, y=response_time, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+# Evaluar: ¿las rectas son paralelas?
+
+# si: sigue funcionando (ANOVA factorial)
+
+# no: algo mas
+
+```
+
+```{r}
+# Comparar 
+drugs_model_1 = lm(response_time ~ sex + drug, data = drugs_df_1)
+
+drugs_df_1$predictions = predict(drugs_model_1)
+
+# Ver si esta grafica se parece a la anterior:
+ggplot(drugs_df_1, aes(x=sex, y=predictions, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+# si o no: 
+
+# resultado SI que se parece
+summary(drugs_model_1)
+
+# p valores se aproximan a 0 (son pequeños)
+
+# como referencia se ha cogido del sexo a las mujeres y a la droga la de tipo a
+
+# Conclusiones: (modelo sin interaccion)
+# Para una misma droga los hombres estan 4 puntos mas abajo que las mujeres
+
+# Para un mismo sexo la droga b 
+```
+
+
+### Ejemplo: interacciones entre los factores principales
+Repite el ejercicio anterior para los datos experimentales "drugs_2.csv".
+
+```{r}
+# OTRO EJEMPLO (con interaccion porque las rectas no son paralelas)
+
+drugs_df_2 = read.csv("data/drugs_2.csv")
+drugs_df_2 = mutate(drugs_df_2, drug = factor(drug), sex = factor(sex))
+
+# interaction.plot(drugs_df$sex, drugs_df$drug, response = drugs_df$response_time)
+ggplot(drugs_df_2, aes(x=sex, y=response_time, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+# ¿SON LAS RECTAS PARALELAS?
+
+# si o no
+
+# Resultado: NO lo son
+```
+
+```{r}
+# hacemos las predicciones (las lineas siempre van a salir paralelas)
+drugs_model_2 = lm(response_time ~ sex + drug, data = drugs_df_2)
+drugs_df_2$predictions = predict(drugs_model_2)
+
+ggplot(drugs_df_2, aes(x=sex, y=predictions, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+# vemos que ahora si que son paralelas las rectas pero no se parecen a la recta anterior
+```
+
+Uuuuups, las predicciones son malíiiiiiisimas... El modelo no es capaz de 
+capturar **las interacciones** presentes en los datos.
+
+### Ejemplo: modelado de interacciones 
+Para modelar interacciones...
+
+```{r}
+# PASO 1: VISUALIZAR CON INTERACCIONES
+
+# Con interacciones (lineas no son paralelas)
+lm(response_time ~ sex + drug, drugs_df_2)
+# sustituimos el mas por un por
+drugs_model_2 = lm(response_time ~ sex * drug, drugs_df_2)
+
+# visualizamos grafica
+ggplot(drugs_df_2, aes(x=sex, y=predictions, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+# o de forma equivalente
+#drugs_model_2 = lm(response_time ~ sex + drug + sex:drug, data = drugs_df_2)
+drugs_df_2$predictions = predict(drugs_model_2)
+
+ggplot(drugs_df_2, aes(x=sex, y=predictions, col=drug)) + 
+  stat_summary() + 
+  stat_summary(geom='line', aes(group=drug))
+
+# imprimir resultados nuevo modelo
+summary(drugs_model_2)
+
+# ecuacion:
+# response = 23 + 15 * sexMale + 11 * drugB - 9 * placebo + (-20) * male:B -19 * male:placebo
+
+# si las  interacciones (sexMale:drugB, sexMale:drugPlacebo) son significativas (***) no debemos interpretar directamente los coeficientes principales (sexMale, drugB, drugPlacebo) -> contar la historia caso a caso
+
+# ecuaciones v2:
+
+# Mujeres y drogaB
+
+# response = 23 + 11
+
+# Hombres y placebo
+
+# response = 23 + 15 - 9 - 19
+```
+
+
+### Ejemplo: completando el análisis para drugs_model_2
+Una vez aclarado el concepto de interacción podemos completar el análisis 
+para `drugs_df_2`. 
+
+```{r}
+
+
+# 2) Contrastes: creemos nuestros propios contrastes ortogonales 
+# ¡Ojo! ahora creamos matrices (para get_contrasts_coding) y listas de contrastes (para emmeans)
+
+# Para ver el orden
+contrasts(drugs_df_2$drug)
+
+# Orden:
+# 1. A
+# 2. B
+# 3. Placebo
+
+# Drubs Vs Placebo: Ho: 0.5 * mu_drugA + 0.5 * mu_drugB - mu_Placebo
+
+# A Vs B: Ho: mu_drugA - mu_drugB 
+
+drugs_contrasts = rbind(
+  "_Drugs Vs Placebo" = c(0.5, 0.5, -1), 
+  "_A Vs B" = c(1, -1, 0)
+)
+
+contrasts(drugs_df_2$drug) = get_contrasts_coding(drugs_contrasts)
+
+
+drugs_contrasts_list = list(
+  "_Drugs Vs Placebo" = c(0.5, 0.5, -1), 
+  "_A Vs B" = c(1, -1, 0)
+)
+
+# 3) ANOVA ( poner * si es con interaccion (lineas no paralelas))
+drugs_model_2 = lm(response_time ~ drug * sex, drugs_df_2)
+# te muestra menos lineas 
+print(Anova(drugs_model_2, type = 3))
+
+# conclusiones: 
+# drogas si influyen en el tiempo de respuesta
+# sexo si influye en el tiempo de respuesta
+# la interaccion si influye en el tiempo de respuesta
+
+# seguimos adelante si todos son significativos (todos lo son)
+
+
+# Omitimos los plot de comprobación por sencillez...(comprueba que son correctos)
+# plot(drugs_model_2, ask=FALSE)
+
+# 4) contrastes
+# Contrastes principales para drogas
+
+# Los coefficientes de summary no cuadran con los de emmeans!! EN MODELOS CON 
+# INTERACCIONES NO DEBES INTERPRETAR LOS COEFS DE SUMMARY DIRECTAMENTE. Esto 
+# no quiere decir que te puedas saltar el paso de get_contrasts_coding. ¡Recuerda
+# que queremos contrastes ortogonales!
+summary(drugs_model_2)
+
+# no interpretar coeficientes principales -> usar: ~ drug
+drug_means = emmeans(drugs_model_2, ~ drug) 
+
+# Hacer contrastes con la version con listas
+contrast(drug_means, method = list("drugs" = drugs_contrasts_list))
+
+# medias para interacciones (medias para drogas condicionadas al sexo)
+conditional_means = emmeans(drugs_model_2, ~ drug | sex)
+
+# dos valores 
+# "consec": consecutivamente
+# "": 
+contrast(conditional_means, interaction = list("drugs" = drugs_contrasts_list, "sex" = "consec"),
+         by = NULL)
+```
+
+Lo más interesante del código anterior es reflexionar sobre cada uno de los 
+contrastes y su significado. Los contrastes básicos (`sex`, `Drugs-Placebo`, `A - B`)
+deberían ser claros pero, ¿qué significan los contrastes para interacciones?
+
+* `sex1:drug_Drugs-Placebo`: El efecto `Drugs-Placebo` es diferente en hombres y mujeres? 
+Es decir, ¿el efecto de placebo Vs drogas es comparable en hombres y mujeres?
+* `sex1:drug_A - B`: El efecto `drug_A - B` es diferente en hombres y mujeres? Es
+decir, ¿el efecto droga A Vs droga B es comparable en hombres y mujeres?
+
+Fíjate que, si las interacciones son significativas, la interpretación de los 
+efectos principales no tiene sentido. Por ejemplo, en el contraste 2, la
+droga B aumenta el tiempo de respuesta para las mujeres, pero lo disminuye 
+para hombres. Por tanto, responder a ¿disminuye la droga B el tiempo de 
+respuesta (para hombres y mujeres)? da una imagen incompleta del problema.
+
+**NO INTERPRETES LOS EFECTOS PRINCIPALES SI LA INTERACCIÓN ES SIGNIFICATIVA.**
+
+### Ejemplo: análisis Posthoc sobre las interacciones -> solo se hace si ANOVA es significativo
+
+```{r}
+ggplot(drugs_df_2, aes(x=sex, y=response_time, col = drug)) + 
+  stat_summary() + 
+  stat_summary(geom="line", aes(group = drug))
+
+drugs_emms = emmeans(drugs_model_2, ~ drug | sex) 
+contrast(drugs_emms, interaction = 
+           list("drug" = "pairwise", "sex" = "consec"),
+         by = NULL, adjust = "fdr")
+```
+
+A - Placebo & Male - Female: ¿si el salto de A a A es comparable de hombres a mujeres?  el salto de A a B no se parece en hombres a mujeres porque el p-valor es aprox 0 (significativo)
+
+B - Placebo & Male - Female: el salto de B a Placebo es igual en hombres a mujeres porque el p-valor no es 0 (no es significativo)
+
